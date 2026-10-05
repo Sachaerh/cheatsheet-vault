@@ -76,3 +76,7 @@ To change the password, edit the `.env` file, then stop and start the app.
 
 - Deleted from the UI: it's in `data/.trash/` with a timestamp prefix. Move it back into `data/`.
 - Older version: copy it out of `/mnt/POOL/apps/cheatsheet-vault/.zfs/snapshot/<snapshot>/data/`.
+
+## License
+
+License: MIT. See [LICENSE](LICENSE).
