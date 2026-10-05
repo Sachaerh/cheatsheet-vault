@@ -1,0 +1,41 @@
+# TrueNAS custom app "cheatsheet-vault" (Apps -> Discover -> Install via YAML).
+# Replace POOL with your pool name before installing.
+# Code and sheets live in the POOL/apps/cheatsheet-vault dataset.
+services:
+  cheatsheet-vault:
+    image: node:22-alpine
+    user: "568:568"
+    working_dir: /app
+    command: ["node", "server.js"]
+    environment:
+      NODE_ENV: production
+      PORT: "30090"
+      SHEETS_DIR: /data
+    env_file:
+      - /mnt/POOL/apps/secrets/cheatsheet-vault.env
+    volumes:
+      - /mnt/POOL/apps/cheatsheet-vault/app:/app:ro
+      - /mnt/POOL/apps/cheatsheet-vault/data:/data
+    ports:
+      - "30090:30090"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:30090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+x-portals:
+  - name: Web UI
+    scheme: http
+    host: 0.0.0.0
+    port: 30090
+    path: /

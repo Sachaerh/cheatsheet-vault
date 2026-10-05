@@ -1,0 +1,22 @@
+{
+  "name": "cheatsheet-vault",
+  "version": "1.0.0",
+  "description": "Self-hosted searchable library for Markdown, HTML, PDF and text cheat sheets",
+  "type": "module",
+  "main": "server.js",
+  "private": true,
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "highlight.js": "^11.11.1",
+    "marked": "^15.0.12",
+    "marked-highlight": "^2.2.1",
+    "multer": "^2.0.2",
+    "unpdf": "^1.0.0",
+    "sanitize-html": "^2.17.0"
+  }
+}

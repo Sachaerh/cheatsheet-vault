@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cheatsheet Vault</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/theme.js"></script>
+<script type="module" src="/static/app.js"></script>
+</head>
+<body class="library">
+<header class="topbar">
+  <button class="icon-btn nav-toggle" id="navToggle" aria-label="Categories" title="Categories">☰</button>
+  <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="26" height="26"><span>Cheatsheet Vault</span></a>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search all sheets…  ( / )" autocomplete="off" aria-label="Search all sheets">
+  </div>
+  <div class="actions">
+    <button class="btn primary" id="newBtn">New sheet</button>
+    <button class="btn" id="uploadBtn">Upload</button>
+    <input id="fileInput" type="file" multiple accept=".md,.markdown,.html,.htm,.pdf,.txt" hidden>
+    <button class="icon-btn theme-toggle" id="themeBtn" title="Toggle dark mode" aria-label="Toggle dark mode">◐</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar" aria-label="Categories">
+    <nav id="cats"></nav>
+  </aside>
+  <main class="content">
+    <div class="toolbar">
+      <h2 id="heading">All sheets</h2>
+      <span class="count" id="count"></span>
+      <label class="sort">Sort
+        <select id="sort">
+          <option value="recent">Recent</option>
+          <option value="az">A–Z</option>
+        </select>
+      </label>
+    </div>
+    <div id="grid" class="grid" aria-live="polite"></div>
+    <p id="empty" class="empty" hidden></p>
+  </main>
+</div>
+
+<div id="dropzone" class="dropzone" hidden><div>Drop files to upload<small id="dropTarget"></small></div></div>
+</body>
+</html>
