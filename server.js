@@ -69,7 +69,8 @@ app.use('/static', (req, res, next) => {
   appHeaders(res);
   next();
 });
-app.use('/static', express.static(path.join(HERE, 'public'), { maxAge: '1h', index: false }));
+// Revalidate every time (cheap 304s) so a browser never mixes old and new modules after an update.
+app.use('/static', express.static(path.join(HERE, 'public'), { maxAge: 0, index: false }));
 
 // ---- API guard: same-origin requests from the app's own JS only ----
 // Requires a custom header (forces a CORS preflight that we never answer) and
@@ -94,7 +95,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 app.get('/api/sheets', wrap(async (req, res) => {
   const list = (await store.list()).map(strip);
-  res.json({ sheets: list, version: VERSION });
+  res.json({ sheets: list, folders: await store.folders(), stars: await store.stars(), version: VERSION });
 }));
 
 app.get('/api/search', wrap(async (req, res) => {
@@ -174,6 +175,36 @@ app.post('/api/move', wrap(async (req, res) => {
 app.delete('/api/sheet', wrap(async (req, res) => {
   await store.remove(String(req.query.path || ''));
   res.json({ ok: true });
+}));
+
+// Move several sheets into an existing folder ('' = top level).
+app.post('/api/move-many', wrap(async (req, res) => {
+  const { paths, folder } = req.body || {};
+  res.json(await store.moveMany(paths, folder));
+}));
+
+// ---- folders ----
+app.post('/api/folders', wrap(async (req, res) => {
+  res.status(201).json({ path: await store.createFolder((req.body || {}).path) });
+}));
+
+// Rename (name) and/or move (to = new parent folder, '' = top level).
+app.post('/api/folders/move', wrap(async (req, res) => {
+  const { path: rel, to, name } = req.body || {};
+  res.json({ path: await store.moveFolder(rel, { to, name }) });
+}));
+
+app.delete('/api/folders', wrap(async (req, res) => {
+  res.json(await store.removeFolder(req.query.path));
+}));
+
+// ---- stars ----
+app.get('/api/stars', wrap(async (req, res) => {
+  res.json({ stars: await store.stars() });
+}));
+
+app.put('/api/stars', wrap(async (req, res) => {
+  res.json({ stars: await store.setStars(req.body || {}) });
 }));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
@@ -260,7 +291,7 @@ app.get('/view/*splat', wrap(async (req, res) => {
     ? entry.category.split('/').map((c, i, a) =>
         `<a href="/#cat=${encodeURIComponent(a.slice(0, i + 1).join('/'))}">${escapeHtml(c)}</a>`
       ).join('<span class="sep">/</span>')
-    : '<a href="/">Uncategorized</a>';
+    : '<a href="/">All</a>';
 
   appHeaders(res);
   res.set('Cache-Control', 'no-cache');
@@ -337,8 +368,10 @@ Welcome to **Cheatsheet Vault**, a searchable home for your cheat sheets.
 
 ## Organizing
 
-Categories are folders. Type a category like \`code/python\` when adding or moving a sheet,
-and nested folders are created for you. Star sheets you use often; stars are kept in this browser.
+Folders are real folders on disk. Use **New folder**, then open a folder to add sheets to it.
+Move sheets by dragging a card onto a folder in the sidebar, or tick several cards and choose **Move to…**.
+Right-click a folder (or use its ⋯ button) to rename, move or delete it.
+Star sheets you use often; stars are shared by all your devices and follow a sheet when it moves.
 
 ## Searching
 

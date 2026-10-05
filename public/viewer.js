@@ -62,25 +62,21 @@ function paintStar() {
   starBtn.setAttribute('aria-pressed', on);
 }
 paintStar();
+stars.load().then(paintStar, () => {});
 
 async function categories() {
   try {
-    const { sheets } = await api('GET', '/api/sheets');
-    const set = new Set();
-    for (const s of sheets) {
-      if (!s.category) continue;
-      const parts = s.category.split('/');
-      for (let i = 1; i <= parts.length; i++) set.add(parts.slice(0, i).join('/'));
-    }
-    return [...set].sort();
+    return (await api('GET', '/api/sheets')).folders;
   } catch {
     return [];
   }
 }
 
 const actions = {
-  star() {
-    stars.toggle(meta.path);
+  async star() {
+    const done = stars.toggle(meta.path);
+    paintStar();
+    await done;
     paintStar();
   },
   theme: toggleTheme,
@@ -111,14 +107,11 @@ const actions = {
       submit: 'Save',
       fields: [
         { name: 'name', label: `File name (.${meta.ext} is kept)`, value: base },
-        { name: 'category', label: 'Category', value: meta.category, placeholder: 'Empty = no category', list: await categories(), hint: 'Use / for nested categories, e.g. code/python' },
+        { name: 'category', label: 'Folder', value: meta.category, placeholder: 'Empty = top level', list: await categories(), hint: 'Use / for nested folders, e.g. code/python' },
       ],
       onSubmit: (v) => api('POST', '/api/move', { path: meta.path, name: v.name, category: v.category }),
     });
-    if (res && res.path) {
-      stars.rename(meta.path, res.path);
-      location.href = viewUrl(res.path);
-    }
+    if (res && res.path) location.href = viewUrl(res.path);
   },
   async delete() {
     $('details.menu').open = false;
@@ -129,10 +122,7 @@ const actions = {
       danger: true,
       onSubmit: () => api('DELETE', '/api/sheet?path=' + encodeURIComponent(meta.path)),
     });
-    if (res) {
-      stars.rename(meta.path, null);
-      location.href = '/';
-    }
+    if (res) location.href = meta.category ? '/#cat=' + encodeURIComponent(meta.category) : '/';
   },
 };
 

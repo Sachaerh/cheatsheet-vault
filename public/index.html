@@ -11,7 +11,7 @@
 </head>
 <body class="library">
 <header class="topbar">
-  <button class="icon-btn nav-toggle" id="navToggle" aria-label="Categories" title="Categories">☰</button>
+  <button class="icon-btn nav-toggle" id="navToggle" aria-label="Folders" title="Folders">☰</button>
   <a class="brand" href="/"><img src="/static/icon.svg" alt="" width="26" height="26"><span>Cheatsheet Vault</span></a>
   <div class="search">
     <input id="q" type="search" placeholder="Search all sheets…  ( / )" autocomplete="off" aria-label="Search all sheets">
@@ -25,13 +25,14 @@
 </header>
 
 <div class="layout">
-  <aside class="sidebar" id="sidebar" aria-label="Categories">
+  <aside class="sidebar" id="sidebar" aria-label="Folders">
     <nav id="cats"></nav>
   </aside>
   <main class="content">
     <div class="toolbar">
-      <h2 id="heading">All sheets</h2>
+      <h2 id="heading">All</h2>
       <span class="count" id="count"></span>
+      <button class="btn small" id="newFolderBtn">New folder</button>
       <label class="sort">Sort
         <select id="sort">
           <option value="recent">Recent</option>
@@ -39,11 +40,18 @@
         </select>
       </label>
     </div>
+    <div id="folders" class="folder-grid"></div>
     <div id="grid" class="grid" aria-live="polite"></div>
     <p id="empty" class="empty" hidden></p>
   </main>
 </div>
 
+<div id="selbar" class="selbar" hidden role="region" aria-label="Selected sheets">
+  <span id="selCount"></span>
+  <button class="btn primary small" id="selMove">Move to…</button>
+  <button class="btn small" id="selClear">Clear</button>
+</div>
+<div id="folderMenu" class="popmenu" hidden role="menu"></div>
 <div id="dropzone" class="dropzone" hidden><div>Drop files to upload<small id="dropTarget"></small></div></div>
 </body>
 </html>

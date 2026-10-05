@@ -1,13 +1,21 @@
 # Cheatsheet Vault
 
 A self-hosted, searchable library for cheat sheets in Markdown, HTML, PDF and plain text.
-It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), and subfolders are categories (`code/python`).
+It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), and the app's folders are real subfolders (`code/python`).
 
 ## Features
 
 - Library: card grid, full-text search across every sheet (including PDF text) with highlighted snippets,
-  a category sidebar with counts, starred sheets (kept in the browser), sort by recent or A–Z,
-  light/dark mode and a phone layout. Press `/` to search.
+  starred sheets, sort by recent or A–Z, light/dark mode and a phone layout. Press `/` to search.
+- Folders:
+  - A sidebar tree with expand/collapse and sheet counts. Opening a folder shows a breadcrumb, its subfolders as tiles, and its own sheets.
+  - Create empty folders. An empty folder holds a hidden `.keep` file so it isn't removed.
+  - Rename, move or delete a folder from its ⋯ button or a right-click. A deleted folder goes to `.trash` with everything in it.
+  - Move sheets by dragging a card onto a folder (sidebar, tile or breadcrumb), or tick several cards and use **Move to…**.
+  - New, pasted and uploaded sheets go into the folder you're in.
+  - Search always covers every folder.
+- Stars are kept in `SHEETS_DIR/.stars.json`, so every device shares them and they follow a sheet when it or its folder moves.
+  Stars kept in the browser by version 1.0 are merged in on first load.
 - Viewer:
   - Markdown is rendered on the server with syntax-highlighted code, Copy buttons, a table of contents and a print layout.
     The Copy buttons fall back to `execCommand('copy')` over plain HTTP.
@@ -15,10 +23,11 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
     `Content-Security-Policy: sandbox allow-scripts`.
   - PDFs are embedded.
 - Adding sheets: paste content (Markdown or HTML is detected automatically), upload several files, or drag files onto the page.
-- Managing sheets: edit, rename, move to another category, or delete. Deleted sheets go to `SHEETS_DIR/.trash/`.
+- Managing sheets: edit, rename, move to another folder, or delete. Deleted sheets go to `SHEETS_DIR/.trash/`.
 - Security:
   - Optional HTTP basic auth.
   - Every path is checked so it can't leave `SHEETS_DIR`, and symlinks are not followed.
+    Folder paths are refused outright (not repaired) if any part is `.`, `..`, hidden (starts with a dot), or contains `\`, control characters or `: * ? " < > |`.
   - API calls need an `X-Vault: 1` header and a same-host origin, so scripts in HTML sheets can't use the API.
   - Markdown output is sanitized.
 - A "Getting Started" sheet is created only when the data folder is empty.
@@ -74,7 +83,7 @@ To change the password, edit the `.env` file, then stop and start the app.
 
 ### Restoring a sheet
 
-- Deleted from the UI: it's in `data/.trash/` with a timestamp prefix. Move it back into `data/`.
+- Deleted from the UI: it's in `data/.trash/` with a timestamp prefix (folder paths are flattened with `__`, e.g. `…__code__python`). Move it back into `data/`.
 - Older version: copy it out of `/mnt/POOL/apps/cheatsheet-vault/.zfs/snapshot/<snapshot>/data/`.
 
 ## License

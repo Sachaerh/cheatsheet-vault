@@ -44,25 +44,37 @@ function save(key, value) {
 }
 export const prefs = { load, save };
 
+// Stars live on the server (data/.stars.json) so every device shares them and
+// moves keep them. Stars from older versions, kept in this browser, are merged in once.
 export const stars = {
-  all() {
-    return new Set(load('cv-stars', []));
+  set: new Set(),
+  async load(list) {
+    if (!list) ({ stars: list } = await api('GET', '/api/stars'));
+    this.set = new Set(list);
+    const old = load('cv-stars', []);
+    if (Array.isArray(old) && old.length) {
+      try {
+        ({ stars: list } = await api('PUT', '/api/stars', { add: old }));
+        this.set = new Set(list);
+        localStorage.removeItem('cv-stars');
+      } catch {}
+    }
+    return this.set;
   },
   has(p) {
-    return this.all().has(p);
+    return this.set.has(p);
   },
-  toggle(p) {
-    const s = this.all();
-    s.has(p) ? s.delete(p) : s.add(p);
-    save('cv-stars', [...s]);
-    return s.has(p);
-  },
-  rename(from, to) {
-    const s = this.all();
-    if (s.delete(from)) {
-      if (to) s.add(to);
-      save('cv-stars', [...s]);
+  async toggle(p) {
+    const on = !this.set.has(p);
+    on ? this.set.add(p) : this.set.delete(p);
+    try {
+      const { stars: list } = await api('PUT', '/api/stars', on ? { add: [p] } : { remove: [p] });
+      this.set = new Set(list);
+    } catch (e) {
+      on ? this.set.delete(p) : this.set.add(p);
+      toast(e.message, 'error');
     }
+    return this.set.has(p);
   },
 };
 
