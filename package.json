@@ -2,6 +2,7 @@
   "name": "cheatsheet-vault",
   "version": "1.0.0",
   "description": "Self-hosted searchable library for Markdown, HTML, PDF and text cheat sheets",
+  "license": "MIT",
   "type": "module",
   "main": "server.js",
   "private": true,
