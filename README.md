@@ -23,7 +23,7 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
     `Content-Security-Policy: sandbox allow-scripts`.
   - PDFs are embedded.
 - Adding sheets: paste content (Markdown or HTML is detected automatically), upload several files, or drag files onto the page.
-- Create from link (optional, needs a Claude API key): paste a web page link, pick a folder and optionally a focus
+- Create from link (optional, off unless a Claude API key is configured): paste a web page link, pick a folder and optionally a focus
   ("just the keyboard shortcuts"). The server fetches the page, Claude writes a condensed cheat sheet in its own words,
   and it is saved as Markdown with the source link at the bottom. The dialog shows each step and can be cancelled.
   See [Create from link](#create-from-link) for the limits and safety checks.
@@ -50,8 +50,22 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
 
 ## Create from link
 
-Turned on by setting `ANTHROPIC_API_KEY` (on TrueNAS: add `ANTHROPIC_API_KEY=...` to the secrets env file, then stop and start the app).
-Without a key the **From link** button is hidden and the rest of the app works as before.
+This feature is **optional** and **off by default**. Without an API key the **From link** button is hidden,
+`POST /api/from-link` answers 503, and everything else works as usual. Nothing is sent to Claude.
+
+To turn it on:
+
+1. Create an API key in the Claude Console (platform.claude.com → API Keys). Usage is billed per token to that Console
+   account's credits. A Claude Pro/Max subscription does not cover it. A dedicated key in a workspace with a spend limit is a good idea.
+2. Add it to the environment as `ANTHROPIC_API_KEY`. On TrueNAS, add `ANTHROPIC_API_KEY=sk-ant-...` to
+   `/mnt/POOL/apps/secrets/cheatsheet-vault.env` (root only, mode 600).
+3. Restart the app: `sudo midclt call -j app.stop cheatsheet-vault && sudo midclt call -j app.start cheatsheet-vault`.
+   The **From link** button appears next to **New sheet**.
+4. Optionally set `CLAUDE_MODEL` to use a different model (default `claude-opus-5-5`).
+
+To turn it off again, remove the line and restart.
+
+How it works and what is checked:
 
 - Only public `http`/`https` links on ports 80 and 443, without a user name or password.
 - The address is checked after DNS resolution and again on every redirect (at most 5). If any address a name resolves to is
