@@ -10,7 +10,7 @@ const state = {
   open: new Set(prefs.load('cv-open', [])), // expanded folders in the sidebar
   selected: new Set(), // selected sheet paths
   library: null, // offline library (Kiwix) ports, or null when not set up
-  lib: null, // offline library results: null, { loading }, or { available, total, results }
+  lib: null, // offline library results: null, { loading }, or { available, results }
 };
 const total = new Map(); // folder -> sheets inside it, including subfolders
 
@@ -84,7 +84,7 @@ async function searchLibrary(seq, q) {
   try {
     lib = await api('GET', '/api/library-search?q=' + encodeURIComponent(q));
   } catch {
-    lib = { available: false, total: 0, results: [] };
+    lib = { available: false, results: [] };
   }
   if (seq !== searchSeq) return;
   state.lib = lib;
@@ -235,9 +235,7 @@ function renderLibrary() {
   const lib = state.results !== null && state.library ? state.lib : null;
   box.hidden = !lib;
   if (!lib) return;
-  const count = $('#libCount');
   const list = $('#libList');
-  count.textContent = lib.loading || !lib.available ? '' : plural(lib.total, 'article');
   if (lib.loading) {
     list.innerHTML = '<p class="lib-note">Searching the offline library…</p>';
   } else if (!lib.available) {
@@ -254,12 +252,10 @@ function renderLibrary() {
       </li>`,
       )
       .join('')}</ul>`;
-    if (lib.total > lib.results.length) {
-      list.insertAdjacentHTML(
-        'beforeend',
-        `<p class="lib-more"><a href="${esc(libraryUrl('/search?pattern=' + encodeURIComponent(state.q.trim())))}" target="_blank" rel="noopener">All ${plural(lib.total, 'result')} in the offline library ↗</a></p>`,
-      );
-    }
+    list.insertAdjacentHTML(
+      'beforeend',
+      `<p class="lib-more"><a href="${esc(libraryUrl('/search?pattern=' + encodeURIComponent(state.q.trim())))}" target="_blank" rel="noopener">All results in the offline library ↗</a></p>`,
+    );
   }
 }
 

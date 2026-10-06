@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseSearchXml, searchLibrary, kiwixBase } from '../lib/kiwix.js';
+import { parseSearchXml, searchLibrary, kiwixBase, isMachineTranslated } from '../lib/kiwix.js';
 
 // Shape of kiwix-serve 3.8 /search?format=xml output (snippets carry raw <b> tags).
 const XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -47,8 +47,7 @@ const XML = `<?xml version="1.0" encoding="UTF-8"?>
 </rss>`;
 
 test('parses kiwix search XML into plain text and drops foreign links', () => {
-  const { total, results } = parseSearchXml(XML);
-  assert.equal(total, 42);
+  const { results } = parseSearchXml(XML);
   assert.deepEqual(results, [
     {
       title: 'Pacman',
@@ -71,6 +70,16 @@ test('rejects non-RSS responses', () => {
   assert.throws(() => parseSearchXml(''));
 });
 
+test('isMachineTranslated: only WikEM <Page>/<lang> copies, not /en or other books', () => {
+  const w = '/content/wikem_en_all_maxi_2026-07/';
+  for (const p of ['Burns/de', 'Burns/zh', 'Ankle_(Fractures)/fr', 'Antibiotics_in_Sepsis-Harbor/id', '100kg_(large_Adult)/ar']) {
+    assert.equal(isMachineTranslated(w + p), true, p);
+  }
+  for (const p of [w + 'Burns', w + 'Burns/en', w + 'de', w + 'Burns/deu', w + 'Burns/de/x', '/content/archlinux_en_all_maxi_2026-07/Pacman/de', '/content/archlinux_en_all_maxi_2026-07/Mirrors_(Magyar)']) {
+    assert.equal(isMachineTranslated(p), false, p);
+  }
+});
+
 test('kiwixBase validates and trims KIWIX_URL', () => {
   assert.equal(kiwixBase(''), '');
   assert.equal(kiwixBase(undefined), '');
@@ -82,11 +91,23 @@ test('kiwixBase validates and trims KIWIX_URL', () => {
 // ---- a fake kiwix-serve ----
 let mode = 'ok';
 let lastQuery = null;
+let starts = []; // `start` of every /search request, to check paging
 const fake = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (u.pathname !== '/search') return res.writeHead(404).end();
   lastQuery = Object.fromEntries(u.searchParams);
+  starts.push(Number(u.searchParams.get('start')));
+  if (mode === 'paged' || mode === 'paged-fail') {
+    // Pages 1-2: 50 hits each, all machine translations except 2 English ones on page 1; page 3: 4 English.
+    const start = Number(u.searchParams.get('start'));
+    if (mode === 'paged-fail' && start > 0) return res.writeHead(500).end();
+    const items = start === 0 ? [...Array(48)].map((_, i) => wikemItem(`P${i}/de`)).concat(wikemItem('Early_1'), wikemItem('Early_2'))
+      : start === 50 ? [...Array(50)].map((_, i) => wikemItem(`Q${i}/fr`))
+      : ['Late_1', 'Late_2', 'Late_3', 'Late_4'].map(wikemItem);
+    return res.writeHead(200).end(`<rss version="2.0"><channel>${items.join('')}</channel></rss>`);
+  }
   if (mode === 'ok') return res.writeHead(200, { 'Content-Type': 'application/rss+xml' }).end(XML);
+  if (mode === 'wikem') return res.writeHead(200).end(WIKEM);
   if (mode === 'error') return res.writeHead(500).end('boom');
   if (mode === 'noindex') return res.writeHead(400).end('no full-text index');
   if (mode === 'junk') return res.writeHead(200).end('<html>not rss</html>');
@@ -94,6 +115,14 @@ const fake = http.createServer((req, res) => {
   if (mode === 'slow') return setTimeout(() => res.writeHead(200).end(XML), 2000);
 });
 let fakeBase;
+
+// 20 hits (Kiwix claims 60): 15 machine translations + 5 English pages (incl. a /en source copy).
+const wikemItem = (p) => `<item><title>${p}</title><link>/content/wikem_en_all_maxi_2026-07/${p}</link><book><title>WikEM</title></book></item>`;
+const LANGS = ['ar', 'de', 'es', 'fr', 'hi', 'id', 'it', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'vi', 'zh'];
+const WIKEM = `<rss version="2.0"><channel><opensearch:totalResults>60</opensearch:totalResults>
+${LANGS.map((l) => wikemItem('Burns/' + l)).join('\n')}
+${['Burns', 'Burns/en', 'Burns_(peds)', 'Electrical_injury', 'Chemical_burns'].map(wikemItem).join('\n')}
+</channel></rss>`;
 
 const PORT = 39500 + Math.floor(Math.random() * 400);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -138,19 +167,53 @@ test('searchLibrary: results, and the query reaches kiwix-serve', async () => {
   const r = await searchLibrary(fakeBase, '  pacman  ', { limit: 7 });
   assert.equal(r.available, true);
   assert.equal(r.results.length, 3);
-  assert.deepEqual(lastQuery, { pattern: 'pacman', format: 'xml', pageLength: '7' });
+  // Fetches a full page so enough hits remain after hiding machine translations.
+  assert.deepEqual(lastQuery, { pattern: 'pacman', format: 'xml', start: '0', pageLength: '50' });
+});
+
+test('searchLibrary: hides WikEM machine translations, then applies the limit', async () => {
+  mode = 'wikem';
+  let r = await searchLibrary(fakeBase, 'burns');
+  assert.deepEqual(r.results.map((x) => x.title), ['Burns', 'Burns/en', 'Burns_(peds)', 'Electrical_injury', 'Chemical_burns']);
+  r = await searchLibrary(fakeBase, 'burns', { limit: 2 });
+  assert.deepEqual(r.results.map((x) => x.title), ['Burns', 'Burns/en']);
+});
+
+test('searchLibrary: pages on until enough English hits, at most 3 pages', async () => {
+  mode = 'paged';
+  starts = [];
+  let r = await searchLibrary(fakeBase, 'tourniquet');
+  assert.deepEqual(r.results.map((x) => x.title), ['Early_1', 'Early_2', 'Late_1', 'Late_2', 'Late_3', 'Late_4']);
+  assert.deepEqual(starts, [0, 50, 100]);
+  // Stops as soon as the limit is reached.
+  starts = [];
+  r = await searchLibrary(fakeBase, 'tourniquet', { limit: 2 });
+  assert.deepEqual(r.results.map((x) => x.title), ['Early_1', 'Early_2']);
+  assert.deepEqual(starts, [0]);
+  // A short page means no more hits.
+  mode = 'ok';
+  starts = [];
+  await searchLibrary(fakeBase, 'pacman');
+  assert.deepEqual(starts, [0]);
+});
+
+test('searchLibrary: a later page failing keeps the hits found so far', async () => {
+  mode = 'paged-fail';
+  const r = await searchLibrary(fakeBase, 'tourniquet');
+  assert.equal(r.available, true);
+  assert.deepEqual(r.results.map((x) => x.title), ['Early_1', 'Early_2']);
 });
 
 test('searchLibrary: empty query does not call kiwix-serve', async () => {
   lastQuery = null;
-  assert.deepEqual(await searchLibrary(fakeBase, '   '), { available: true, total: 0, results: [] });
+  assert.deepEqual(await searchLibrary(fakeBase, '   '), { available: true, results: [] });
   assert.equal(lastQuery, null);
 });
 
 test('searchLibrary: errors, junk, huge and slow answers mean "unavailable", never a throw', async () => {
   for (const m of ['error', 'junk', 'huge']) {
     mode = m;
-    assert.deepEqual(await searchLibrary(fakeBase, 'x'), { available: false, total: 0, results: [] }, m);
+    assert.deepEqual(await searchLibrary(fakeBase, 'x'), { available: false, results: [] }, m);
   }
   mode = 'slow';
   const t0 = Date.now();
@@ -162,7 +225,7 @@ test('searchLibrary: errors, junk, huge and slow answers mean "unavailable", nev
 
 test('searchLibrary: 400 from kiwix (nothing searchable) is "no results", not an outage', async () => {
   mode = 'noindex';
-  assert.deepEqual(await searchLibrary(fakeBase, 'x'), { available: true, total: 0, results: [] });
+  assert.deepEqual(await searchLibrary(fakeBase, 'x'), { available: true, results: [] });
 });
 
 test('API: /api/sheets advertises the library ports', async () => {
