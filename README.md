@@ -23,13 +23,18 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
     `Content-Security-Policy: sandbox allow-scripts`.
   - PDFs are embedded.
 - Adding sheets: paste content (Markdown or HTML is detected automatically), upload several files, or drag files onto the page.
+- Create from link (optional, needs a Claude API key): paste a web page link, pick a folder and optionally a focus
+  ("just the keyboard shortcuts"). The server fetches the page, Claude writes a condensed cheat sheet in its own words,
+  and it is saved as Markdown with the source link at the bottom. The dialog shows each step and can be cancelled.
+  See [Create from link](#create-from-link) for the limits and safety checks.
 - Managing sheets: edit, rename, move to another folder, or delete. Deleted sheets go to `SHEETS_DIR/.trash/`.
 - Security:
   - Optional HTTP basic auth.
   - Every path is checked so it can't leave `SHEETS_DIR`, and symlinks are not followed.
     Folder paths are refused outright (not repaired) if any part is `.`, `..`, hidden (starts with a dot), or contains `\`, control characters or `: * ? " < > |`.
   - API calls need an `X-Vault: 1` header and a same-host origin, so scripts in HTML sheets can't use the API.
-  - Markdown output is sanitized.
+  - Markdown output is sanitized on the server for every sheet: no scripts, event handlers, `javascript:` or protocol-relative links,
+    inline styles, iframes, SVG, forms or embeds, and only syntax-highlighting classes. The page CSP (`script-src 'self'`) is a second layer.
 - A "Getting Started" sheet is created only when the data folder is empty.
 
 ## Configuration
@@ -40,6 +45,25 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
 | `SHEETS_DIR` | `./data` | Folder holding the sheets |
 | `AUTH_USER`, `AUTH_PASS` | unset | Turn on basic auth when both are set |
 | `MAX_UPLOAD_MB` | `25` | Per-file upload and paste limit |
+| `ANTHROPIC_API_KEY` | unset | Turns on **Create from link**. Keep it in the root-only secrets env file; it is never sent to the browser or logged |
+| `CLAUDE_MODEL` | `claude-opus-5-5` | Model used for Create from link |
+
+## Create from link
+
+Turned on by setting `ANTHROPIC_API_KEY` (on TrueNAS: add `ANTHROPIC_API_KEY=...` to the secrets env file, then stop and start the app).
+Without a key the **From link** button is hidden and the rest of the app works as before.
+
+- Only public `http`/`https` links on ports 80 and 443, without a user name or password.
+- The address is checked after DNS resolution and again on every redirect (at most 5). If any address a name resolves to is
+  loopback, private (10/8, 172.16/12, 192.168/16), CGNAT/Tailscale (100.64/10, fd7a:115c:a1e0::/48), link-local, multicast
+  or another special range (IPv4-mapped, NAT64 and 6to4 IPv6 forms included), the request is refused. The connection is made to the
+  address that was checked, so DNS rebinding can't swap it. Names ending in `.local`, `.localhost`, `.internal` or `.ts.net` and
+  single-label names are refused outright.
+- Limits: 15 seconds, 3 MB (counted after decompression), HTML or plain text only, and at most 200,000 characters of text.
+  Longer pages are refused rather than cut, so add a focus or use a more specific page.
+- The page goes to Claude as untrusted data. The instructions tell it to summarize only, in its own words, without copying passages,
+  and to ignore any instructions inside the page. The source line is added by the server, not by the model.
+- One link is processed at a time. Each sheet is one Claude API call, billed to your API account.
 
 ## Run locally
 

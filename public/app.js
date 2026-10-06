@@ -35,6 +35,7 @@ async function refresh() {
   try {
     const data = await api('GET', '/api/sheets');
     state.sheets = data.sheets;
+    $('#linkBtn').hidden = !data.fromLink;
     // Folders from the directory walk, plus any implied by a sheet's path.
     const set = new Set(data.folders);
     total.clear();
@@ -266,6 +267,101 @@ async function newSheet() {
     onSubmit: (v) => api('POST', '/api/sheets', v),
   });
   if (res && res.path) location.href = viewUrl(res.path);
+}
+
+// ---- create from link ----
+async function fromLink() {
+  const res = await dialog({
+    title: 'Create from link',
+    submit: 'Create sheet',
+    message: 'Claude reads the page and writes a short cheat sheet in its own words. The link is added at the bottom.',
+    fields: [
+      { name: 'url', label: 'Link', placeholder: 'https://…' },
+      { name: 'folder', label: 'Folder', type: 'select', value: uploadCategory(), options: folderOptions() },
+      { name: 'focus', label: 'Focus (optional)', placeholder: 'e.g. just the keyboard shortcuts' },
+    ],
+    onSubmit: runFromLink,
+  });
+  if (res && res.path) location.href = viewUrl(res.path);
+}
+
+const LINK_STEPS = [
+  ['fetching', 'Fetching the page'],
+  ['reading', 'Reading the page'],
+  ['writing', 'Writing the cheat sheet'],
+  ['done', 'Saving'],
+];
+
+async function runFromLink(values) {
+  const d = $$('dialog.modal[open]').pop();
+  const form = $('form', d);
+  let box = $('.progress', d);
+  if (!box) {
+    box = document.createElement('ol');
+    box.className = 'progress';
+    box.setAttribute('aria-live', 'polite');
+    form.insertBefore(box, $('.form-error', d));
+  }
+  box.innerHTML = LINK_STEPS.map(([k, label]) => `<li data-step="${k}"><span class="label">${esc(label)}</span> <span class="detail"></span></li>`).join('');
+  box.hidden = true;
+  const inputs = $$('input, select', form);
+  inputs.forEach((i) => (i.disabled = true));
+  const mark = (stage, detail) => {
+    box.hidden = false;
+    let seen = false;
+    for (const li of $$('li', box)) {
+      const here = li.dataset.step === stage;
+      li.className = here ? 'active' : seen ? '' : 'done';
+      if (here) {
+        seen = true;
+        if (detail != null) $('.detail', li).textContent = detail;
+      }
+    }
+  };
+  const ac = new AbortController();
+  d.addEventListener('close', () => ac.abort(), { once: true }); // Cancel / Esc stops the job
+  try {
+    const res = await fetch('/api/from-link', {
+      method: 'POST',
+      headers: { 'X-Vault': '1', 'Content-Type': 'application/json' },
+      body: JSON.stringify(values),
+      signal: ac.signal,
+    });
+    if (!(res.headers.get('content-type') || '').includes('ndjson')) {
+      const data = await res.json().catch(() => null);
+      throw new Error((data && data.error) || `${res.status} ${res.statusText}`);
+    }
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let nl;
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl);
+        buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        const ev = JSON.parse(line);
+        if (ev.stage === 'error') {
+          const li = $('li.active', box);
+          if (li) li.className = 'failed';
+          throw new Error(ev.error);
+        }
+        if (ev.stage === 'reading') mark('reading', `${ev.chars.toLocaleString()} characters`);
+        else if (ev.stage === 'writing') mark('writing', `${ev.chars.toLocaleString()} characters so far`);
+        else if (ev.stage === 'done') {
+          mark('done');
+          return { path: ev.path };
+        } else mark(ev.stage);
+      }
+    }
+    throw new Error('The connection closed before the sheet was saved');
+  } catch (e) {
+    inputs.forEach((i) => (i.disabled = false));
+    if (e.name === 'AbortError') throw new Error('Cancelled');
+    throw e;
+  }
 }
 
 async function uploadFiles(files) {
@@ -569,6 +665,7 @@ $('#sort').addEventListener('change', (e) => {
 });
 
 $('#newBtn').addEventListener('click', newSheet);
+$('#linkBtn').addEventListener('click', fromLink);
 $('#newFolderBtn').addEventListener('click', () => newFolder());
 $('#uploadBtn').addEventListener('click', () => $('#fileInput').click());
 $('#fileInput').addEventListener('change', (e) => {

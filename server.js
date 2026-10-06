@@ -4,7 +4,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store, HttpError, TEXT_TYPES, typeOf, cleanName, detectKind, extractTitle } from './lib/store.js';
+import { Store, HttpError, TEXT_TYPES, typeOf, cleanName, detectKind, extractTitle, folderPath } from './lib/store.js';
+import { checkUrl, fetchPage } from './lib/fetch-page.js';
+import { summarize, isConfigured, MAX_FOCUS } from './lib/summarize.js';
 import { renderMarkdown, renderText, search, strip, escapeHtml } from './lib/render.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -95,7 +97,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 app.get('/api/sheets', wrap(async (req, res) => {
   const list = (await store.list()).map(strip);
-  res.json({ sheets: list, folders: await store.folders(), stars: await store.stars(), version: VERSION });
+  res.json({ sheets: list, folders: await store.folders(), stars: await store.stars(), version: VERSION, fromLink: isConfigured() });
 }));
 
 app.get('/api/search', wrap(async (req, res) => {
@@ -205,6 +207,55 @@ app.get('/api/stars', wrap(async (req, res) => {
 
 app.put('/api/stars', wrap(async (req, res) => {
   res.json({ stars: await store.setStars(req.body || {}) });
+}));
+
+// ---- create from link ----
+// Streams NDJSON progress: fetching -> reading -> writing -> done | error.
+// Input errors (bad link, blocked IP literal, bad folder) are plain JSON 4xx.
+let linkBusy = false;
+app.post('/api/from-link', wrap(async (req, res) => {
+  const { url, folder, focus } = req.body || {};
+  if (!isConfigured()) throw new HttpError(503, 'Create from link is not set up: add ANTHROPIC_API_KEY to the secrets env file');
+  const checked = checkUrl(url);
+  const dir = folderPath(folder ?? '');
+  await store.folderDir(dir); // 404 if the folder doesn't exist
+  if (focus != null && typeof focus !== 'string') throw new HttpError(400, 'Focus must be text');
+  if (String(focus || '').length > MAX_FOCUS) throw new HttpError(400, `Focus is limited to ${MAX_FOCUS} characters`);
+  if (linkBusy) throw new HttpError(429, 'Another sheet is being created from a link; try again when it finishes');
+  linkBusy = true;
+
+  const ac = new AbortController();
+  res.on('close', () => {
+    if (!res.writableFinished) ac.abort();
+  });
+  res.status(200).set({ 'Content-Type': 'application/x-ndjson; charset=utf-8', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders();
+  const send = (o) => {
+    if (!res.writableEnded && !res.destroyed) res.write(JSON.stringify(o) + '\n');
+  };
+  try {
+    send({ stage: 'fetching' });
+    const page = await fetchPage(checked.href, { signal: ac.signal });
+    send({ stage: 'reading', chars: page.text.length, title: page.title });
+    const md = await summarize({
+      ...page,
+      focus,
+      signal: ac.signal,
+      onProgress: ({ chars }) => send({ stage: 'writing', chars }),
+    });
+    const name = extractTitle('markdown', md, 'Untitled.md');
+    const rel = await store.create({ category: dir, name, ext: 'md', data: md });
+    send({ stage: 'done', path: rel });
+  } catch (err) {
+    const status = err.status || 500;
+    // One line, fixed messages only: never the request, the page or the SDK error object.
+    console.warn(`from-link: ${status} ${err instanceof HttpError ? err.message : 'unexpected error'}`);
+    if (!(err instanceof HttpError)) console.error(err);
+    send({ stage: 'error', status, error: err instanceof HttpError ? err.message : 'Server error' });
+  } finally {
+    linkBusy = false;
+    res.end();
+  }
 }));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
@@ -340,7 +391,7 @@ app.use((err, req, res, next) => {
   } else if (err.type === 'entity.too.large') {
     msg = 'Content is too large';
   }
-  if (status >= 500) console.error(err);
+  if (status >= 500 && !(err instanceof HttpError)) console.error(err);
   if (req.path.startsWith('/api')) return res.status(status).json({ error: msg });
   appHeaders(res);
   res.status(status).send(page({
@@ -365,6 +416,7 @@ Welcome to **Cheatsheet Vault**, a searchable home for your cheat sheets.
 - **Paste**: click **New sheet**, paste Markdown or HTML, and save. The type is detected automatically.
 - **Upload**: click **Upload** and pick one or more \`.md\`, \`.html\`, \`.pdf\` or \`.txt\` files.
 - **Drag and drop**: drop files anywhere on the library page.
+- **From link**: paste a web page link and Claude writes a short cheat sheet from it (shown only when an API key is set up).
 
 ## Organizing
 

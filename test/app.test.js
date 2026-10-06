@@ -20,7 +20,7 @@ before(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cv-'));
   await fs.writeFile(path.join(os.tmpdir(), 'cv-outside.md'), '# secret');
   proc = spawn(process.execPath, ['server.js'], {
-    env: { ...process.env, PORT: String(PORT), SHEETS_DIR: dir, AUTH_USER: 'u', AUTH_PASS: 'p' },
+    env: { ...process.env, PORT: String(PORT), SHEETS_DIR: dir, AUTH_USER: 'u', AUTH_PASS: 'p', ANTHROPIC_API_KEY: '' },
     stdio: 'inherit',
   });
   for (let i = 0; i < 50; i++) {
@@ -238,4 +238,41 @@ test('deleting a folder moves it and its contents to .trash and drops its stars'
   assert.ok(!s.stars.some((x) => x.startsWith('notes/')));
   assert.ok(!s.folders.some((f) => f.startsWith('notes')));
   assert.ok(s.stars.includes('code/languages/python/Py.md'));
+});
+
+test('markdown sanitizing strips every script vector, for any sheet', async () => {
+  const evil = [
+    '# Evil',
+    '<script>alert(1)</script>',
+    '<img src=x onerror=alert(2)>',
+    '[click](javascript:alert(3))',
+    '[proto](//evil.example/x)',
+    '<iframe src="https://evil.example"></iframe>',
+    '<svg onload=alert(4)><circle/></svg>',
+    '<p style="position:fixed;inset:0">overlay</p>',
+    '<div class="modal topbar">fake ui</div>',
+    '<object data="x.swf"></object><embed src="x.swf">',
+    '<form action="https://evil.example"><input name=q></form>',
+    '<a href="https://ok.example" onclick="alert(5)">ok</a>',
+    '```js',
+    'const safe = "<script>in code</script>";',
+    '```',
+  ].join('\n\n');
+  const p = (await (await json('POST', '/api/sheets', { content: evil })).json()).path;
+  const view = await (await req('/view/' + encodeURIComponent(p))).text();
+  const article = view.slice(view.indexOf('<article'), view.indexOf('</article>'));
+  assert.doesNotMatch(article, /<script|onerror|onload|onclick|javascript:|<iframe|<svg|<object|<embed|<form|style=|href="\/\/|class="modal/i);
+  assert.match(article, /<a href="https:\/\/ok\.example" target="_blank" rel="noopener noreferrer">ok<\/a>/);
+  assert.match(article, /&lt;script&gt;in code/); // code is shown as text
+  assert.match(article, /class="hljs language-js"/); // highlighting classes survive
+});
+
+test('create from link: not set up without an API key', async () => {
+  const data = await (await req('/api/sheets')).json();
+  assert.equal(data.fromLink, false);
+  const r = await json('POST', '/api/from-link', { url: 'https://example.com/' });
+  assert.equal(r.status, 503);
+  assert.match((await r.json()).error, /ANTHROPIC_API_KEY/);
+  // The page loads and the button is there (hidden by the client).
+  assert.match(await (await req('/')).text(), /id="linkBtn" hidden/);
 });
