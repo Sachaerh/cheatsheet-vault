@@ -100,8 +100,11 @@ instance holding ZIM files (Wikipedia-style offline copies of sites, from [libra
   The browser never talks to Kiwix for search. If Kiwix is stopped, slow (3 second limit) or answers with something
   unexpected, that section says the library isn't responding, and sheet search works as usual.
 - Results are plain text (titles, book name and a snippet); links must be paths on the Kiwix server.
-- WikEM's machine-translated page copies (`<Page>/de`, `/fr`, … in 15 languages) are left out of vault search so they
-  don't crowd out the English articles. They are still in Kiwix itself; `<Page>/en` copies are English and are kept.
+- Translated copies of English articles are left out of vault search so they don't crowd out the English ones.
+  They are still in Kiwix itself:
+  - WikEM's machine translations (`<Page>/de`, `/fr`, … in 15 languages). `<Page>/en` copies are English and are kept.
+  - ArchWiki translations (`<Page> (<Language>)` and pages under them, about 6,600 pages; 55 language names, listed
+    in `lib/kiwix.js`). English pages that end in parentheses, such as `(Gen 2)` or `(AMD)`, are kept.
 - Only ZIMs with a full-text index are searchable. Collections that wrap PDFs (such as the zimgit ones) can be read in Kiwix
   but are mostly not found by search.
 - kiwix-serve loads its ZIM files at start, so restart the Kiwix app after adding or replacing one.

@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { parseSearchXml, searchLibrary, kiwixBase, isMachineTranslated } from '../lib/kiwix.js';
+import { parseSearchXml, searchLibrary, kiwixBase, isTranslation } from '../lib/kiwix.js';
 
 // Shape of kiwix-serve 3.8 /search?format=xml output (snippets carry raw <b> tags).
 const XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -70,14 +70,32 @@ test('rejects non-RSS responses', () => {
   assert.throws(() => parseSearchXml(''));
 });
 
-test('isMachineTranslated: only WikEM <Page>/<lang> copies, not /en or other books', () => {
+test('isTranslation: WikEM <Page>/<lang> copies, not /en or other books', () => {
   const w = '/content/wikem_en_all_maxi_2026-07/';
   for (const p of ['Burns/de', 'Burns/zh', 'Ankle_(Fractures)/fr', 'Antibiotics_in_Sepsis-Harbor/id', '100kg_(large_Adult)/ar']) {
-    assert.equal(isMachineTranslated(w + p), true, p);
+    assert.equal(isTranslation(w + p), true, p);
   }
-  for (const p of [w + 'Burns', w + 'Burns/en', w + 'de', w + 'Burns/deu', w + 'Burns/de/x', '/content/archlinux_en_all_maxi_2026-07/Pacman/de', '/content/archlinux_en_all_maxi_2026-07/Mirrors_(Magyar)']) {
-    assert.equal(isMachineTranslated(p), false, p);
+  for (const p of [w + 'Burns', w + 'Burns/en', w + 'de', w + 'Burns/deu', w + 'Burns/de/x', '/content/archlinux_en_all_maxi_2026-07/Pacman/de', '/content/ifixit_en_all_2025-12/Mirrors_(Magyar)']) {
+    assert.equal(isTranslation(p), false, p);
   }
+});
+
+test('isTranslation: ArchWiki "<Page> (<Language>)" pages and their subpages, percent-encoded or not', () => {
+  const a = '/content/archlinux_en_all_maxi_2026-07/';
+  const enc = (p) => a + p.split('/').map(encodeURIComponent).join('/');
+  for (const p of [
+    'Mirrors_(Magyar)', 'Mirrors_(Русский)', 'Installation_guide_(简体中文)', 'Installation_guide_(正體中文)',
+    'Apache_HTTP_Server_(Español)/mod_perl_(Español)', 'ArchWiki:Translation_Team_(Português)/Terminologia',
+    'Foo_(Português_do_Brasil)', 'Foo_(Norsk_Bokmål)', 'Motion_(_Русский_)', 'LXDE_(italiano)', 'Cron_(Magya)',
+  ]) {
+    assert.equal(isTranslation(enc(p)), true, p);
+    assert.equal(isTranslation(a + p), true, p + ' (not encoded)');
+  }
+  for (const p of ['Mirrors', 'Lenovo_ThinkPad_X1_Carbon_(Gen_2)', 'AMD_(AMD)', 'Linux_conferences_(old)', 'Foo_(English)', 'Foo_(Gen_2)/Bar', 'Pacman/Tips_and_tricks']) {
+    assert.equal(isTranslation(enc(p)), false, p);
+  }
+  assert.equal(isTranslation('/content/wikem_en_all_maxi_2026-07/Burns_(Magyar)'), false, 'ArchWiki rule only for ArchWiki');
+  assert.equal(isTranslation(a + 'Mirrors_(%'), false, 'bad percent-encoding does not throw');
 });
 
 test('kiwixBase validates and trims KIWIX_URL', () => {
