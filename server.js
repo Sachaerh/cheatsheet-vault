@@ -8,6 +8,7 @@ import { Store, HttpError, TEXT_TYPES, typeOf, cleanName, detectKind, extractTit
 import { checkUrl, fetchPage } from './lib/fetch-page.js';
 import { summarize, isConfigured, MAX_FOCUS } from './lib/summarize.js';
 import { renderMarkdown, renderText, search, strip, escapeHtml } from './lib/render.js';
+import { kiwixBase, kiwixPort, searchLibrary } from './lib/kiwix.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
@@ -15,6 +16,12 @@ const SHEETS_DIR = path.resolve(process.env.SHEETS_DIR || path.join(HERE, 'data'
 const AUTH_USER = process.env.AUTH_USER || '';
 const AUTH_PASS = process.env.AUTH_PASS || '';
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB) || 25;
+// Optional offline library (kiwix-serve). KIWIX_URL is how this server reaches it;
+// browsers link to the same host they use for the vault, on KIWIX_URL's port, or on
+// KIWIX_HTTPS_PORT when the vault itself is opened over HTTPS.
+const KIWIX_URL = kiwixBase(process.env.KIWIX_URL);
+const KIWIX_HTTPS_PORT = Number(process.env.KIWIX_HTTPS_PORT) || null;
+const LIBRARY = KIWIX_URL ? { port: kiwixPort(KIWIX_URL), httpsPort: KIWIX_HTTPS_PORT } : null;
 const VERSION = JSON.parse(await fs.readFile(path.join(HERE, 'package.json'), 'utf8')).version;
 
 const store = new Store(SHEETS_DIR);
@@ -97,11 +104,18 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 app.get('/api/sheets', wrap(async (req, res) => {
   const list = (await store.list()).map(strip);
-  res.json({ sheets: list, folders: await store.folders(), stars: await store.stars(), version: VERSION, fromLink: isConfigured() });
+  res.json({ sheets: list, folders: await store.folders(), stars: await store.stars(), version: VERSION, fromLink: isConfigured(), library: LIBRARY });
 }));
 
 app.get('/api/search', wrap(async (req, res) => {
   res.json({ results: search(await store.list(), req.query.q) });
+}));
+
+// Articles from the offline library. Always 200 when configured: { available: false } means
+// Kiwix is down or slow, so the page shows that in its own section and sheet search is unaffected.
+app.get('/api/library-search', wrap(async (req, res) => {
+  if (!KIWIX_URL) throw new HttpError(404, 'The offline library is not set up');
+  res.json(await searchLibrary(KIWIX_URL, req.query.q));
 }));
 
 app.get('/api/sheet', wrap(async (req, res) => {
@@ -402,7 +416,7 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Cheatsheet Vault ${VERSION} on :${PORT}, sheets in ${SHEETS_DIR}, auth ${AUTH_USER ? 'on' : 'off'}`);
+  console.log(`Cheatsheet Vault ${VERSION} on :${PORT}, sheets in ${SHEETS_DIR}, auth ${AUTH_USER ? 'on' : 'off'}, offline library ${KIWIX_URL ? 'on' : 'off'}`);
 });
 
 async function seed() {

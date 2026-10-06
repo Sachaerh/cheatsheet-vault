@@ -211,6 +211,18 @@ button.twisty:hover { color: var(--text); }
 }
 .empty { color: var(--muted); text-align: center; padding: 50px 10px; }
 
+/* offline library (Kiwix) results, below the sheet results */
+.library-results { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); }
+.lib-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.lib-item { padding: 10px 12px; border-radius: var(--radius); }
+.lib-item:hover { background: var(--surface-2); }
+.lib-link { font-weight: 600; font-size: 15px; color: var(--accent); text-decoration: none; overflow-wrap: anywhere; }
+.lib-link:hover { text-decoration: underline; }
+.lib-book { margin-left: 8px; font-size: 12px; color: var(--muted); }
+.lib-snippet { margin: 4px 0 0; font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }
+.lib-note, .lib-more { color: var(--muted); font-size: 14px; margin: 6px 12px; }
+.lib-more a { color: var(--accent); }
+
 .dropzone {
   position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(59, 91, 219, .16);
   backdrop-filter: blur(2px); pointer-events: none;

@@ -27,6 +27,9 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
   ("just the keyboard shortcuts"). The server fetches the page, Claude writes a condensed cheat sheet in its own words,
   and it is saved as Markdown with the source link at the bottom. The dialog shows each step and can be cancelled.
   See [Create from link](#create-from-link) for the limits and safety checks.
+- Offline library (optional, off unless `KIWIX_URL` is set): an **Offline library** link in the sidebar opens a
+  [Kiwix](https://kiwix.org) server, and searches also list matching Kiwix articles in their own section below your sheets.
+  See [Offline library](#offline-library).
 - Managing sheets: edit, rename, move to another folder, or delete. Deleted sheets go to `SHEETS_DIR/.trash/`.
 - Security:
   - Optional HTTP basic auth.
@@ -47,6 +50,8 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
 | `MAX_UPLOAD_MB` | `25` | Per-file upload and paste limit |
 | `ANTHROPIC_API_KEY` | unset | Turns on **Create from link**. Keep it in the root-only secrets env file; it is never sent to the browser or logged |
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Model used for Create from link |
+| `KIWIX_URL` | unset | Turns on the **Offline library**: how the vault server reaches kiwix-serve, e.g. `http://192.168.1.10:30236` |
+| `KIWIX_HTTPS_PORT` | unset | Port of an HTTPS front for Kiwix (e.g. `tailscale serve`), used for the sidebar link when the vault is opened over HTTPS |
 
 ## Create from link
 
@@ -78,6 +83,25 @@ How it works and what is checked:
 - The page goes to Claude as untrusted data. The instructions tell it to summarize only, in its own words, without copying passages,
   and to ignore any instructions inside the page. The source line is added by the server, not by the model.
 - One link is processed at a time. Each sheet is one Claude API call, billed to your API account.
+
+## Offline library
+
+This feature is **optional** and **off by default**. It links the vault to a [kiwix-serve](https://github.com/kiwix/kiwix-tools)
+instance holding ZIM files (Wikipedia-style offline copies of sites, from [library.kiwix.org](https://library.kiwix.org)).
+
+- Set `KIWIX_URL` to the address the vault *server* uses to reach kiwix-serve. On TrueNAS, install the catalog app
+  **Kiwix Server** with its data storage pointing at a dataset of `.zim` files, and use `http://<NAS LAN IP>:<its port>`.
+- The sidebar gets an **Offline library ↗** link. It points at the host the browser used for the vault, on `KIWIX_URL`'s port.
+  If the vault is opened over HTTPS and `KIWIX_HTTPS_PORT` is set, it uses `https://` on that port instead
+  (for example `tailscale serve --bg --https=8444 http://127.0.0.1:30236`).
+- Searching shows your sheets first. Kiwix articles load separately in an **Offline library** section below them,
+  through `GET /api/library-search?q=` on the vault server (kiwix-serve `/search?format=xml`, all books, top 10).
+  The browser never talks to Kiwix for search. If Kiwix is stopped, slow (3 second limit) or answers with something
+  unexpected, that section says the library isn't responding, and sheet search works as usual.
+- Results are plain text (titles, book name and a snippet); links must be paths on the Kiwix server.
+- Only ZIMs with a full-text index are searchable. Collections that wrap PDFs (such as the zimgit ones) can be read in Kiwix
+  but are mostly not found by search.
+- kiwix-serve loads its ZIM files at start, so restart the Kiwix app after adding or replacing one.
 
 ## Run locally
 

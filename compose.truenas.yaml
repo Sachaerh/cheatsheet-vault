@@ -11,6 +11,9 @@ services:
       NODE_ENV: production
       PORT: "30090"
       SHEETS_DIR: /data
+      # Optional offline library (Kiwix Server catalog app); see README "Offline library".
+      # KIWIX_URL: http://NAS_LAN_IP:30236
+      # KIWIX_HTTPS_PORT: "8444"
     env_file:
       - /mnt/POOL/apps/secrets/cheatsheet-vault.env
     volumes:

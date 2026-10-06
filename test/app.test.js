@@ -43,6 +43,12 @@ test('seeds a welcome sheet and requires auth', async () => {
   assert.deepEqual(sheets.map((s) => s.title), ['Getting Started']);
 });
 
+test('offline library is off without KIWIX_URL', async () => {
+  const data = await (await req('/api/sheets')).json();
+  assert.equal(data.library, null);
+  assert.equal((await req('/api/library-search?q=x')).status, 404);
+});
+
 test('API refuses requests without X-Vault or from a null origin', async () => {
   assert.equal((await fetch(BASE + '/api/sheets', { headers: { Authorization: AUTH } })).status, 403);
   assert.equal((await req('/api/sheets', { headers: { Origin: 'null' } })).status, 403);

@@ -9,6 +9,8 @@ const state = {
   sort: prefs.load('cv-sort', 'recent'),
   open: new Set(prefs.load('cv-open', [])), // expanded folders in the sidebar
   selected: new Set(), // selected sheet paths
+  library: null, // offline library (Kiwix) ports, or null when not set up
+  lib: null, // offline library results: null, { loading }, or { available, total, results }
 };
 const total = new Map(); // folder -> sheets inside it, including subfolders
 
@@ -36,6 +38,7 @@ async function refresh() {
     const data = await api('GET', '/api/sheets');
     state.sheets = data.sheets;
     $('#linkBtn').hidden = !data.fromLink;
+    state.library = data.library || null;
     // Folders from the directory walk, plus any implied by a sheet's path.
     const set = new Set(data.folders);
     total.clear();
@@ -65,10 +68,34 @@ async function runSearch() {
   const seq = ++searchSeq;
   if (!state.q.trim()) {
     state.results = null;
+    state.lib = null;
     return;
   }
+  // The offline library is searched in parallel and renders on its own, so sheets never wait for Kiwix.
+  if (state.library) searchLibrary(seq, state.q);
   const { results } = await api('GET', '/api/search?q=' + encodeURIComponent(state.q));
   if (seq === searchSeq) state.results = results;
+}
+
+async function searchLibrary(seq, q) {
+  state.lib = { loading: true };
+  renderLibrary();
+  let lib;
+  try {
+    lib = await api('GET', '/api/library-search?q=' + encodeURIComponent(q));
+  } catch {
+    lib = { available: false, total: 0, results: [] };
+  }
+  if (seq !== searchSeq) return;
+  state.lib = lib;
+  renderLibrary();
+}
+
+// Kiwix is a separate site on the same host: its own port, or its HTTPS port when the vault is on HTTPS.
+function libraryUrl(p = '/') {
+  const { port, httpsPort } = state.library;
+  const https = location.protocol === 'https:' && httpsPort;
+  return `${https ? 'https' : 'http'}://${location.hostname}:${https ? httpsPort : port}${p}`;
 }
 
 // ---- sidebar tree ----
@@ -96,6 +123,11 @@ function renderTree() {
     <div class="tree-row top${state.cat === '*' ? ' active' : ''}">
       <a href="#" class="cat" data-cat="*"><span class="label">★ Starred</span><span class="n">${starred}</span></a>
     </div>`;
+  if (state.library) {
+    html += `<div class="tree-row top">
+      <a href="${esc(libraryUrl())}" class="cat" id="libLink" target="_blank" rel="noopener"><span class="label">Offline library</span><span class="n" aria-hidden="true">↗</span></a>
+    </div>`;
+  }
   html += '<div class="cat-head">Folders</div>';
   const top = childrenOf('');
   html += top.length ? top.map((f) => treeRow(f, 0)).join('') : '<p class="tree-empty">No folders yet.</p>';
@@ -194,7 +226,41 @@ function render() {
           : 'No sheets here yet. Paste one with “New sheet”, or drop files on this page.';
   }
   $('#dropTarget').textContent = uploadCategory() ? `into ${uploadCategory()}` : '';
+  renderLibrary();
   renderSelection();
+}
+
+function renderLibrary() {
+  const box = $('#library');
+  const lib = state.results !== null && state.library ? state.lib : null;
+  box.hidden = !lib;
+  if (!lib) return;
+  const count = $('#libCount');
+  const list = $('#libList');
+  count.textContent = lib.loading || !lib.available ? '' : plural(lib.total, 'article');
+  if (lib.loading) {
+    list.innerHTML = '<p class="lib-note">Searching the offline library…</p>';
+  } else if (!lib.available) {
+    list.innerHTML = '<p class="lib-note">The offline library isn’t responding right now.</p>';
+  } else if (!lib.results.length) {
+    list.innerHTML = '<p class="lib-note">No articles match that search.</p>';
+  } else {
+    list.innerHTML = `<ul class="lib-list">${lib.results
+      .map(
+        (r) => `<li class="lib-item">
+        <a class="lib-link" href="${esc(libraryUrl(r.path))}" target="_blank" rel="noopener">${esc(r.title)}</a>
+        ${r.book ? `<span class="lib-book">${esc(r.book)}</span>` : ''}
+        ${r.snippet ? `<p class="lib-snippet">${esc(r.snippet)}</p>` : ''}
+      </li>`,
+      )
+      .join('')}</ul>`;
+    if (lib.total > lib.results.length) {
+      list.insertAdjacentHTML(
+        'beforeend',
+        `<p class="lib-more"><a href="${esc(libraryUrl('/search?pattern=' + encodeURIComponent(state.q.trim())))}" target="_blank" rel="noopener">All ${plural(lib.total, 'result')} in the offline library ↗</a></p>`,
+      );
+    }
+  }
 }
 
 function renderSelection() {
