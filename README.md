@@ -97,7 +97,7 @@ instance holding ZIM files (Wikipedia-style offline copies of sites, from [libra
 - Searching shows your sheets first. Kiwix articles load separately in an **Offline library** section below them,
   through `GET /api/library-search?q=` on the vault server (kiwix-serve `/search?format=xml`, all books, top 10, with a link to the full results in Kiwix).
   No result count is shown, because kiwix-serve's total is unreliable when several books are searched.
-  The browser never talks to Kiwix for search. If Kiwix is stopped, slow (3 second limit) or answers with something
+  The browser never talks to Kiwix for search. If Kiwix is stopped, slow (6 second limit; the section shows "Searching the offline library…" meanwhile) or answers with something
   unexpected, that section says the library isn't responding, and sheet search works as usual.
 - Results are plain text (titles, book name and a snippet); links must be paths on the Kiwix server.
 - Translated copies of English articles are left out of vault search so they don't crowd out the English ones.
