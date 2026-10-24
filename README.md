@@ -16,6 +16,13 @@ It has no database: every sheet is a plain file in one folder (`SHEETS_DIR`), an
   - Search always covers every folder.
 - Stars are kept in `SHEETS_DIR/.stars.json`, so every device shares them and they follow a sheet when it or its folder moves.
   Stars kept in the browser by version 1.0 are merged in on first load.
+- Download all: one click saves every sheet as a single Markdown file (handy to give to an AI) or as a ZIP of the original files.
+  - In the Markdown file, HTML sheets are converted to text with headings, lists, tables and code blocks kept. Pages that build
+    their content in JavaScript also include their script, since that is where the data is. PDFs contribute their extracted text.
+  - Locks keep sheets private: click the padlock on a card or in the viewer, or lock a whole folder from its ⋯ menu
+    (everything inside it, including sheets added later, is locked). Locked sheets are left out of both formats, titles included;
+    the dialog lists them before you download. Locks are kept in `SHEETS_DIR/.locks.json` and follow renames and moves.
+    A locked sheet or folder moved out of a locked folder keeps its own lock, so nothing becomes shareable by being moved.
 - Viewer:
   - Markdown is rendered on the server with syntax-highlighted code, Copy buttons, a table of contents and a print layout.
     The Copy buttons fall back to `execCommand('copy')` over plain HTTP.

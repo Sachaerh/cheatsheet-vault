@@ -78,6 +78,35 @@ export const stars = {
   },
 };
 
+// Locked sheets, and folders ("name/") with everything inside them, are left out of
+// "Download all". Kept on the server (data/.locks.json) like stars.
+export const locks = {
+  set: new Set(),
+  async load(list) {
+    if (!list) ({ locks: list } = await api('GET', '/api/locks'));
+    this.set = new Set(list);
+    return this.set;
+  },
+  // The entry that locks p (a sheet path or "folder/"): p itself or a folder above it, else null.
+  by(p) {
+    if (this.set.has(p)) return p;
+    for (let i = p.indexOf('/'); i !== -1 && i < p.length - 1; i = p.indexOf('/', i + 1)) {
+      if (this.set.has(p.slice(0, i + 1))) return p.slice(0, i + 1);
+    }
+    return null;
+  },
+  has(p) {
+    return this.by(p) !== null;
+  },
+  async change({ add = [], remove = [] }) {
+    const { locks: list } = await api('PUT', '/api/locks', { add, remove });
+    this.set = new Set(list);
+  },
+};
+
+export const LOCK_ICON =
+  '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 1 1 6 0v3z"/></svg>';
+
 // ---- theme ----
 export function currentTheme() {
   const t = document.documentElement.getAttribute('data-theme');

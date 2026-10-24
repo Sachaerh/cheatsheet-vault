@@ -385,3 +385,18 @@ button.twisty:hover { color: var(--text); }
   .md h2, .md h3 { break-after: avoid; }
   .md a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 9pt; color: #555; }
 }
+/* locks: locked sheets and folders are left out of "Download all" */
+.lock-btn {
+  position: relative; z-index: 1; margin-left: auto; background: none; border: 0; cursor: pointer;
+  color: var(--muted); padding: 3px 4px; border-radius: 6px; line-height: 0; opacity: .45;
+}
+.lock-btn + .star-btn { margin-left: 0; }
+.lock-btn:hover, .lock-btn:focus-visible { opacity: 1; }
+.lock-btn.on, .icon-btn.lock.on { color: var(--accent); opacity: 1; }
+.icon-btn.lock { color: var(--muted); }
+.lock-mark { display: inline-flex; color: var(--accent); flex: none; }
+.lock-mark svg { width: 13px; height: 13px; }
+.cat .lock-mark { margin: 0 6px 0 4px; }
+.lock-list { display: block; margin: 8px 0 0; max-height: 200px; overflow-y: auto; color: var(--text); }
+.lock-list > span { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.lock-list svg { width: 13px; height: 13px; color: var(--accent); flex: none; }

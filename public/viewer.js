@@ -1,4 +1,4 @@
-import { api, $, $$, esc, viewUrl, stars, toggleTheme, toast, dialog, copyText } from './common.js';
+import { api, $, $$, esc, viewUrl, stars, locks, toggleTheme, toast, dialog, copyText } from './common.js';
 
 const meta = JSON.parse($('#sheet-meta').textContent);
 
@@ -64,6 +64,21 @@ function paintStar() {
 paintStar();
 stars.load().then(paintStar, () => {});
 
+// ---- lock: leave this sheet out of "Download all" ----
+const lockBtn = $('[data-action=lock]');
+function paintLock() {
+  const by = locks.by(meta.path);
+  lockBtn.classList.toggle('on', !!by);
+  lockBtn.setAttribute('aria-pressed', !!by);
+  lockBtn.title = !by
+    ? 'Lock: leave out of Download all'
+    : by === meta.path
+      ? 'Locked: left out of Download all (click to unlock)'
+      : `Locked by the “${by.slice(0, -1)}” folder`;
+}
+paintLock();
+locks.load().then(paintLock, () => {});
+
 async function categories() {
   try {
     return (await api('GET', '/api/sheets')).folders;
@@ -78,6 +93,19 @@ const actions = {
     paintStar();
     await done;
     paintStar();
+  },
+  async lock() {
+    const by = locks.by(meta.path);
+    if (by && by !== meta.path) {
+      return toast(`The “${by.slice(0, -1)}” folder is locked, so this sheet is too. Unlock that folder first.`);
+    }
+    try {
+      await locks.change(by ? { remove: [meta.path] } : { add: [meta.path] });
+      toast(by ? 'Unlocked: included in Download all' : 'Locked: left out of Download all');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+    paintLock();
   },
   theme: toggleTheme,
   print() {

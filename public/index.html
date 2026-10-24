@@ -21,6 +21,7 @@
     <button class="btn" id="linkBtn" hidden title="Create a cheat sheet from a web page">From link</button>
     <button class="btn" id="uploadBtn">Upload</button>
     <input id="fileInput" type="file" multiple accept=".md,.markdown,.html,.htm,.pdf,.txt" hidden>
+    <button class="btn" id="exportBtn" title="Download every sheet that isn’t locked, e.g. to give to an AI">Download all</button>
     <button class="icon-btn theme-toggle" id="themeBtn" title="Toggle dark mode" aria-label="Toggle dark mode">◐</button>
   </div>
 </header>
@@ -54,6 +55,8 @@
 <div id="selbar" class="selbar" hidden role="region" aria-label="Selected sheets">
   <span id="selCount"></span>
   <button class="btn primary small" id="selMove">Move to…</button>
+  <button class="btn small" id="selLock" title="Leave the selected sheets out of Download all">Lock</button>
+  <button class="btn small" id="selUnlock" title="Include the selected sheets in Download all">Unlock</button>
   <button class="btn small" id="selClear">Clear</button>
 </div>
 <div id="folderMenu" class="popmenu" hidden role="menu"></div>

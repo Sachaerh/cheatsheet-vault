@@ -4,7 +4,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store, HttpError, TEXT_TYPES, typeOf, cleanName, detectKind, extractTitle, folderPath } from './lib/store.js';
+import { Store, HttpError, TEXT_TYPES, typeOf, cleanName, detectKind, extractTitle, folderPath, isLocked } from './lib/store.js';
+import { htmlToMarkdown, buildBundle, buildZip } from './lib/export.js';
 import { checkUrl, fetchPage } from './lib/fetch-page.js';
 import { summarize, isConfigured, MAX_FOCUS } from './lib/summarize.js';
 import { renderMarkdown, renderText, search, strip, escapeHtml } from './lib/render.js';
@@ -104,7 +105,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 app.get('/api/sheets', wrap(async (req, res) => {
   const list = (await store.list()).map(strip);
-  res.json({ sheets: list, folders: await store.folders(), stars: await store.stars(), version: VERSION, fromLink: isConfigured(), library: LIBRARY });
+  res.json({ sheets: list, folders: await store.folders(), stars: await store.stars(), locks: await store.locks(), version: VERSION, fromLink: isConfigured(), library: LIBRARY });
 }));
 
 app.get('/api/search', wrap(async (req, res) => {
@@ -223,6 +224,15 @@ app.put('/api/stars', wrap(async (req, res) => {
   res.json({ stars: await store.setStars(req.body || {}) });
 }));
 
+// ---- locks: locked sheets and folders ("name/") stay out of "Download all" ----
+app.get('/api/locks', wrap(async (req, res) => {
+  res.json({ locks: await store.locks() });
+}));
+
+app.put('/api/locks', wrap(async (req, res) => {
+  res.json({ locks: await store.setLocks(req.body || {}) });
+}));
+
 // ---- create from link ----
 // Streams NDJSON progress: fetching -> reading -> writing -> done | error.
 // Input errors (bad link, blocked IP literal, bad folder) are plain JSON 4xx.
@@ -303,7 +313,51 @@ app.get('/raw/*splat', wrap(async (req, res) => {
   res.send(await fs.readFile(abs));
 }));
 
+// ---- download all: every unlocked sheet, as one Markdown file or a ZIP of the originals ----
+app.get('/export', wrap(async (req, res) => {
+  const format = req.query.format === 'zip' ? 'zip' : 'md';
+  const locks = new Set(await store.locks());
+  const sheets = (await store.list())
+    .filter((s) => !isLocked(locks, s.path))
+    .sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'base', numeric: true }));
+  const day = new Date().toISOString().slice(0, 10);
+  let out;
+  if (format === 'zip') {
+    const files = [];
+    for (const s of sheets) {
+      try {
+        files.push({ name: s.path, data: await fs.readFile(await store.resolveExisting(s.path)), mtime: s.mtime });
+      } catch {} // gone since the scan
+    }
+    out = buildZip(files);
+    res.type('application/zip');
+  } else {
+    const items = [];
+    for (const s of sheets) {
+      let content = s.text; // PDFs: the extracted text
+      try {
+        if (TEXT_TYPES.has(s.type)) {
+          const raw = await fs.readFile(await store.resolveExisting(s.path), 'utf8');
+          content = s.type === 'html' ? htmlToMarkdown(raw) : raw;
+        }
+      } catch {
+        continue;
+      }
+      items.push({ ...s, content });
+    }
+    out = buildBundle(items);
+    res.type('text/markdown; charset=utf-8');
+  }
+  res.set('Cache-Control', 'no-store');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.attachment(`cheatsheet-vault-${day}.${format}`);
+  res.send(out);
+}));
+
 // ---- pages ----
+// Same padlock as LOCK_ICON in public/common.js.
+const LOCK_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 2a5 5 0 0 0-5 5v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 1 1 6 0v3z"/></svg>';
+
 function page({ title, bodyClass, body, head = '' }) {
   return `<!doctype html>
 <html lang="en">
@@ -373,6 +427,7 @@ app.get('/view/*splat', wrap(async (req, res) => {
     <div class="crumbs">${crumbs}<span class="sep">·</span><span class="badge">${escapeHtml(entry.ext)}</span></div>
   </div>
   <div class="actions">
+    <button class="icon-btn lock" data-action="lock" title="Lock" aria-label="Lock">${LOCK_SVG}</button>
     <button class="icon-btn star" data-action="star" title="Star" aria-label="Star">☆</button>
     ${TEXT_TYPES.has(entry.type) ? '<button class="btn" data-action="edit">Edit</button>' : ''}
     <button class="btn" data-action="move">Rename / move</button>

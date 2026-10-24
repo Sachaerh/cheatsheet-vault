@@ -1,4 +1,4 @@
-import { api, $, $$, esc, viewUrl, stars, prefs, toggleTheme, toast, dialog } from './common.js';
+import { api, $, $$, esc, viewUrl, stars, locks, LOCK_ICON, prefs, toggleTheme, toast, dialog } from './common.js';
 
 const state = {
   sheets: [],
@@ -53,6 +53,7 @@ async function refresh() {
     }
     state.folders = [...set].sort(byName);
     await stars.load(data.stars);
+    await locks.load(data.locks);
     const paths = new Set(state.sheets.map((s) => s.path));
     for (const p of state.selected) if (!paths.has(p)) state.selected.delete(p);
     if (state.cat && state.cat !== '*' && !set.has(state.cat)) state.cat = '';
@@ -98,6 +99,94 @@ function libraryUrl(p = '/') {
   return `${https ? 'https' : 'http'}://${location.hostname}:${https ? httpsPort : port}${p}`;
 }
 
+// ---- locks ----
+const folderOf = (entry) => entry.slice(0, -1); // "a/b/" -> "a/b"
+
+// Small padlock after a locked folder's name (locked itself or by a folder above it).
+function lockMark(f) {
+  const by = locks.by(f + '/');
+  if (!by) return '';
+  const why = by === f + '/' ? 'Locked: left out of Download all' : `Locked by “${folderOf(by)}”`;
+  return `<span class="lock-mark" title="${esc(why)}" role="img" aria-label="${esc(why)}">${LOCK_ICON}</span>`;
+}
+
+function lockTitle(p) {
+  const by = locks.by(p);
+  if (!by) return 'Lock: leave out of Download all';
+  return by === p ? 'Locked: left out of Download all (click to unlock)' : `Locked by the “${folderOf(by)}” folder`;
+}
+
+// Lock or unlock one sheet, or a folder given as "name/".
+async function toggleLock(p) {
+  const by = locks.by(p);
+  if (by && by !== p) {
+    return toast(`The “${folderOf(by)}” folder is locked, so everything inside it is too. Unlock that folder first.`);
+  }
+  try {
+    await locks.change(by ? { remove: [p] } : { add: [p] });
+    toast(by ? 'Unlocked: included in Download all' : 'Locked: left out of Download all');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  render();
+}
+
+async function lockSelected(on) {
+  const paths = [...state.selected];
+  try {
+    await locks.change(on ? { add: paths } : { remove: paths });
+  } catch (e) {
+    return toast(e.message, 'error');
+  }
+  const still = on ? 0 : paths.filter((p) => locks.has(p)).length;
+  let msg = `${on ? 'Locked' : 'Unlocked'} ${plural(paths.length, 'sheet')}`;
+  if (still) msg += `; ${still} stay locked because their folder is locked`;
+  toast(msg, still ? 'error' : '');
+  render();
+}
+
+// ---- download all ----
+async function downloadAll() {
+  try {
+    await locks.load();
+  } catch {}
+  const shared = state.sheets.filter((s) => !locks.has(s.path));
+  const held = sorted(state.sheets.filter((s) => locks.has(s.path)));
+  const message = `<strong>${plural(shared.length, 'sheet')}</strong> will be included.${
+    held.length
+      ? ` ${held.length === 1 ? 'This locked sheet stays' : `These ${held.length} locked sheets stay`} private and ${held.length === 1 ? 'is' : 'are'} left out:<span class="lock-list">${held
+          .map((s) => `<span>${LOCK_ICON}${esc(s.title)}${s.category ? ` <span class="muted">(${esc(s.category)})</span>` : ''}</span>`)
+          .join('')}</span>`
+      : ' Nothing is locked yet: use the padlock on a sheet or folder to keep it out.'
+  }`;
+  const res = await dialog({
+    title: 'Download all sheets',
+    message,
+    submit: 'Download',
+    fields: [
+      {
+        name: 'format',
+        label: 'Format',
+        type: 'select',
+        value: prefs.load('cv-export', 'md'),
+        options: [['md', 'One Markdown file (best for giving to an AI)'], ['zip', 'ZIP of the original files']],
+      },
+    ],
+    onSubmit: (v) => {
+      if (!shared.length) throw new Error('Every sheet is locked, so there is nothing to download.');
+      return v;
+    },
+  });
+  if (!res) return;
+  prefs.save('cv-export', res.format);
+  const a = document.createElement('a');
+  a.href = '/export?format=' + encodeURIComponent(res.format);
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 // ---- sidebar tree ----
 function treeRow(f, depth) {
   const kids = childrenOf(f);
@@ -107,7 +196,7 @@ function treeRow(f, depth) {
     ${kids.length
       ? `<button class="twisty" data-toggle="${esc(f)}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${name}">${open ? '▾' : '▸'}</button>`
       : '<span class="twisty"></span>'}
-    <a href="#" class="cat" data-cat="${esc(f)}"${state.cat === f ? ' aria-current="page"' : ''}><span class="label">${name}</span><span class="n">${total.get(f) || 0}</span></a>
+    <a href="#" class="cat" data-cat="${esc(f)}"${state.cat === f ? ' aria-current="page"' : ''}><span class="label">${name}</span>${lockMark(f)}<span class="n">${total.get(f) || 0}</span></a>
     <button class="more" data-menu="${esc(f)}" aria-haspopup="menu" aria-label="Actions for ${name}" title="Folder actions">⋯</button>
   </div>`;
   if (open) for (const k of kids) html += treeRow(k, depth + 1);
@@ -162,6 +251,7 @@ function card(s, showFolder) {
       <input type="checkbox" class="pick" data-pick="${esc(s.path)}"${picked ? ' checked' : ''} aria-label="Select ${esc(s.title)}">
       <span class="badge k-${s.type}">${KIND_LABEL[s.type]}</span>
       ${showFolder && s.category ? `<span class="card-cat">${esc(s.category)}</span>` : ''}
+      <button class="lock-btn${locks.has(s.path) ? ' on' : ''}" data-lock="${esc(s.path)}" aria-pressed="${locks.has(s.path)}" title="${esc(lockTitle(s.path))}" aria-label="Lock ${esc(s.title)}">${LOCK_ICON}</button>
       <button class="star-btn${starred ? ' on' : ''}" data-star="${esc(s.path)}" aria-pressed="${starred}" title="${starred ? 'Unstar' : 'Star'}" aria-label="Star ${esc(s.title)}">${starred ? '★' : '☆'}</button>
     </div>
     <h3><a class="card-link" href="${viewUrl(s.path)}" draggable="false">${s.titleHtml || esc(s.title)}</a></h3>
@@ -174,7 +264,7 @@ function tile(f) {
   const n = total.get(f) || 0;
   const subs = childrenOf(f).length;
   return `<div class="folder-tile" data-folder="${esc(f)}" data-drop="${esc(f)}">
-    <a href="#" class="tile-link" data-cat="${esc(f)}">${FOLDER_ICON}<span class="fname">${esc(nameOf(f))}</span></a>
+    <a href="#" class="tile-link" data-cat="${esc(f)}">${FOLDER_ICON}<span class="fname">${esc(nameOf(f))}</span>${lockMark(f)}</a>
     <span class="fmeta">${plural(n, 'sheet')}${subs ? ` · ${plural(subs, 'folder')}` : ''}</span>
     <button class="more" data-menu="${esc(f)}" aria-haspopup="menu" aria-label="Actions for ${esc(nameOf(f))}" title="Folder actions">⋯</button>
   </div>`;
@@ -572,7 +662,13 @@ function openMenu(f, x, y) {
   menuFolder = f;
   const items = f === ''
     ? [['new', 'New folder']]
-    : [['new', 'New subfolder'], ['rename', 'Rename…'], ['move', 'Move…'], ['delete', 'Delete…']];
+    : [
+        ['new', 'New subfolder'],
+        ['rename', 'Rename…'],
+        ['move', 'Move…'],
+        locks.has(f + '/') ? ['lock', 'Unlock (include in Download all)'] : ['lock', 'Lock (leave out of Download all)'],
+        ['delete', 'Delete…'],
+      ];
   menu.innerHTML = items
     .map(([a, l]) => `<button role="menuitem" data-folder-action="${a}"${a === 'delete' ? ' class="danger"' : ''}>${l}</button>`)
     .join('');
@@ -593,7 +689,7 @@ menu.addEventListener('click', (e) => {
   const f = menuFolder;
   closeMenu();
   document.body.classList.remove('nav-open');
-  ({ new: () => newFolder(f), rename: () => renameFolder(f), move: () => moveFolder(f), delete: () => deleteFolder(f) })[b.dataset.folderAction]();
+  ({ new: () => newFolder(f), rename: () => renameFolder(f), move: () => moveFolder(f), lock: () => toggleLock(f + '/'), delete: () => deleteFolder(f) })[b.dataset.folderAction]();
 });
 menu.addEventListener('keydown', (e) => {
   const items = $$('button', menu);
@@ -638,8 +734,13 @@ for (const el of [$('#cats'), $('#folders'), $('#heading')]) {
   el.addEventListener('contextmenu', onContextMenu);
 }
 
-// ---- cards: star, select ----
+// ---- cards: lock, star, select ----
 $('#grid').addEventListener('click', async (e) => {
+  const l = e.target.closest('[data-lock]');
+  if (l) {
+    e.preventDefault();
+    return toggleLock(l.dataset.lock);
+  }
   const b = e.target.closest('[data-star]');
   if (b) {
     e.preventDefault();
@@ -658,6 +759,8 @@ $('#grid').addEventListener('click', async (e) => {
   }
 });
 $('#selMove').addEventListener('click', moveSelected);
+$('#selLock').addEventListener('click', () => lockSelected(true));
+$('#selUnlock').addEventListener('click', () => lockSelected(false));
 $('#selClear').addEventListener('click', () => {
   state.selected.clear();
   render();
@@ -728,6 +831,7 @@ $('#sort').addEventListener('change', (e) => {
 
 $('#newBtn').addEventListener('click', newSheet);
 $('#linkBtn').addEventListener('click', fromLink);
+$('#exportBtn').addEventListener('click', downloadAll);
 $('#newFolderBtn').addEventListener('click', () => newFolder());
 $('#uploadBtn').addEventListener('click', () => $('#fileInput').click());
 $('#fileInput').addEventListener('change', (e) => {
