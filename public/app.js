@@ -146,21 +146,25 @@ async function lockSelected(on) {
 }
 
 // ---- download all ----
-async function downloadAll() {
+// folder: only that folder and its subfolders ('' = every sheet).
+async function downloadAll(folder = '') {
   try {
     await locks.load();
   } catch {}
-  const shared = state.sheets.filter((s) => !locks.has(s.path));
-  const held = sorted(state.sheets.filter((s) => locks.has(s.path)));
+  const inScope = folder ? state.sheets.filter((s) => isInside(s.category, folder)) : state.sheets;
+  const shared = inScope.filter((s) => !locks.has(s.path));
+  const held = sorted(inScope.filter((s) => locks.has(s.path)));
   const message = `<strong>${plural(shared.length, 'sheet')}</strong> will be included.${
     held.length
       ? ` ${held.length === 1 ? 'This locked sheet stays' : `These ${held.length} locked sheets stay`} private and ${held.length === 1 ? 'is' : 'are'} left out:<span class="lock-list">${held
           .map((s) => `<span>${LOCK_ICON}${esc(s.title)}${s.category ? ` <span class="muted">(${esc(s.category)})</span>` : ''}</span>`)
           .join('')}</span>`
-      : ' Nothing is locked yet: use the padlock on a sheet or folder to keep it out.'
-  }`;
+      : folder
+        ? ''
+        : ' Nothing is locked yet: use the padlock on a sheet or folder to keep it out.'
+  }${folder ? ' Subfolders are included.' : ''}`;
   const res = await dialog({
-    title: 'Download all sheets',
+    title: folder ? `Download “${nameOf(folder)}”` : 'Download all sheets',
     message,
     submit: 'Download',
     fields: [
@@ -173,14 +177,20 @@ async function downloadAll() {
       },
     ],
     onSubmit: (v) => {
-      if (!shared.length) throw new Error('Every sheet is locked, so there is nothing to download.');
+      if (!shared.length) {
+        throw new Error(
+          !inScope.length ? 'This folder has no sheets yet.'
+          : locks.has(folder + '/') ? 'This folder is locked, so there is nothing to download. Unlock it first.'
+          : 'Every sheet is locked, so there is nothing to download.',
+        );
+      }
       return v;
     },
   });
   if (!res) return;
   prefs.save('cv-export', res.format);
   const a = document.createElement('a');
-  a.href = '/export?format=' + encodeURIComponent(res.format);
+  a.href = '/export?format=' + encodeURIComponent(res.format) + (folder ? '&folder=' + encodeURIComponent(folder) : '');
   a.download = '';
   document.body.appendChild(a);
   a.click();
@@ -303,6 +313,7 @@ function render() {
   $('#count').textContent = plural(list.length, 'sheet');
   $('#sort').closest('.sort').hidden = searching;
   $('#newFolderBtn').hidden = searching || !isFolderView();
+  $('#folderDlBtn').hidden = searching || !isFolderView() || !state.cat;
 
   const empty = $('#empty');
   empty.hidden = list.length > 0 || tiles.length > 0;
@@ -666,6 +677,7 @@ function openMenu(f, x, y) {
         ['new', 'New subfolder'],
         ['rename', 'Rename…'],
         ['move', 'Move…'],
+        ['download', 'Download…'],
         locks.has(f + '/') ? ['lock', 'Unlock (include in Download all)'] : ['lock', 'Lock (leave out of Download all)'],
         ['delete', 'Delete…'],
       ];
@@ -689,7 +701,7 @@ menu.addEventListener('click', (e) => {
   const f = menuFolder;
   closeMenu();
   document.body.classList.remove('nav-open');
-  ({ new: () => newFolder(f), rename: () => renameFolder(f), move: () => moveFolder(f), lock: () => toggleLock(f + '/'), delete: () => deleteFolder(f) })[b.dataset.folderAction]();
+  ({ new: () => newFolder(f), rename: () => renameFolder(f), move: () => moveFolder(f), download: () => downloadAll(f), lock: () => toggleLock(f + '/'), delete: () => deleteFolder(f) })[b.dataset.folderAction]();
 });
 menu.addEventListener('keydown', (e) => {
   const items = $$('button', menu);
@@ -831,7 +843,8 @@ $('#sort').addEventListener('change', (e) => {
 
 $('#newBtn').addEventListener('click', newSheet);
 $('#linkBtn').addEventListener('click', fromLink);
-$('#exportBtn').addEventListener('click', downloadAll);
+$('#exportBtn').addEventListener('click', () => downloadAll());
+$('#folderDlBtn').addEventListener('click', () => downloadAll(state.cat));
 $('#newFolderBtn').addEventListener('click', () => newFolder());
 $('#uploadBtn').addEventListener('click', () => $('#fileInput').click());
 $('#fileInput').addEventListener('change', (e) => {

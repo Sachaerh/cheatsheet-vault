@@ -225,3 +225,33 @@ test('the viewer and library pages have the lock and Download all controls', asy
   const view = await (await req('/view/Top.txt')).text();
   assert.match(view, /data-action="lock"/);
 });
+
+test('download one folder: only its sheets and subfolders, locks still apply', async () => {
+  await json('POST', '/api/folders', { path: 'Projects' });
+  await json('POST', '/api/folders', { path: 'Projects/Home Lab' });
+  await json('POST', '/api/sheets', { content: '# Plan\n\nPLAN-TEXT', category: 'Projects/Home Lab' });
+  await json('POST', '/api/sheets', { content: '# Wiring\n\nWIRING-TEXT', category: 'Projects/Home Lab/Parts' });
+  let r = await json('POST', '/api/sheets', { content: '# Keys\n\nSECRET-KEYS', category: 'Projects/Home Lab' });
+  await lock({ add: [(await r.json()).path] });
+
+  r = await req('/export?folder=' + encodeURIComponent('Projects/Home Lab'));
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-disposition'), /filename="cheatsheet-vault-Home-Lab-\d{4}-\d{2}-\d{2}\.md"/);
+  const md = await r.text();
+  assert.match(md, /^# Cheatsheet Vault export: Projects\/Home Lab\n\nExported \S+ · 2 sheets from the "Projects\/Home Lab" folder/);
+  assert.ok(md.includes('PLAN-TEXT') && md.includes('WIRING-TEXT'));
+  assert.ok(!md.includes('SECRET-KEYS') && !md.includes('ls -la') && !md.includes('top level text'));
+
+  // ZIP paths start at the folder itself.
+  r = await req('/export?format=zip&folder=' + encodeURIComponent('Projects/Home Lab'));
+  assert.match(r.headers.get('content-disposition'), /Home-Lab-.*\.zip"$/);
+  assert.deepEqual(Object.keys(readZip(Buffer.from(await r.arrayBuffer()))).sort(), ['Home Lab/Parts/Wiring.md', 'Home Lab/Plan.md']);
+  r = await req('/export?format=zip&folder=Projects');
+  assert.deepEqual(Object.keys(readZip(Buffer.from(await r.arrayBuffer()))).sort(), ['Projects/Home Lab/Parts/Wiring.md', 'Projects/Home Lab/Plan.md']);
+
+  // A locked folder gives an empty export; bad or missing folders are refused.
+  assert.match(await (await req('/export?folder=Sub')).text(), /· 0 sheets from/);
+  assert.equal((await req('/export?folder=Nope')).status, 404);
+  assert.equal((await req('/export?folder=' + encodeURIComponent('../etc'))).status, 400);
+  assert.equal((await req('/export?folder=.trash')).status, 400);
+});

@@ -314,19 +314,26 @@ app.get('/raw/*splat', wrap(async (req, res) => {
 }));
 
 // ---- download all: every unlocked sheet, as one Markdown file or a ZIP of the originals ----
+// ?folder=a/b limits it to that folder and its subfolders; locks still apply inside it.
 app.get('/export', wrap(async (req, res) => {
   const format = req.query.format === 'zip' ? 'zip' : 'md';
+  const folder = folderPath(typeof req.query.folder === 'string' ? req.query.folder : '');
+  if (folder) await store.folderDir(folder); // 404 if it doesn't exist
+  // ZIP entries start at the folder itself ("b/..." for folder "a/b").
+  const base = folder.includes('/') ? folder.slice(0, folder.lastIndexOf('/') + 1) : '';
   const locks = new Set(await store.locks());
   const sheets = (await store.list())
+    .filter((s) => !folder || s.path.startsWith(folder + '/'))
     .filter((s) => !isLocked(locks, s.path))
     .sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'base', numeric: true }));
   const day = new Date().toISOString().slice(0, 10);
+  const name = folder ? cleanName(folder.slice(base.length)).replace(/\s+/g, '-') : '';
   let out;
   if (format === 'zip') {
     const files = [];
     for (const s of sheets) {
       try {
-        files.push({ name: s.path, data: await fs.readFile(await store.resolveExisting(s.path)), mtime: s.mtime });
+        files.push({ name: s.path.slice(base.length), data: await fs.readFile(await store.resolveExisting(s.path)), mtime: s.mtime });
       } catch {} // gone since the scan
     }
     out = buildZip(files);
@@ -345,12 +352,12 @@ app.get('/export', wrap(async (req, res) => {
       }
       items.push({ ...s, content });
     }
-    out = buildBundle(items);
+    out = buildBundle(items, { folder });
     res.type('text/markdown; charset=utf-8');
   }
   res.set('Cache-Control', 'no-store');
   res.set('X-Content-Type-Options', 'nosniff');
-  res.attachment(`cheatsheet-vault-${day}.${format}`);
+  res.attachment(`cheatsheet-vault-${name ? name + '-' : ''}${day}.${format}`);
   res.send(out);
 }));
 
